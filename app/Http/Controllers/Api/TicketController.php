@@ -17,11 +17,24 @@ class TicketController extends Controller
     ) {}
 
     /**
-     * Display a listing of the resource.
+     * @param Request $request
+     * @return JsonResponse
      */
-    public function index()
+    public function index(Request $request): JsonResponse
     {
-        //
+        $perPage = (int)$request->query('per_page', 15);
+
+        $tickets = $this->ticketService->paginate($perPage);
+
+        return response()->json([
+            'data' => TicketResource::collection($tickets),
+            'meta' => [
+                'current_page' => $tickets->currentPage(),
+                'last_page' => $tickets->lastPage(),
+                'per_page' => $tickets->perPage(),
+                'total' => $tickets->total(),
+            ],
+        ]);
     }
 
     /**
@@ -51,18 +64,15 @@ class TicketController extends Controller
     }
 
     /**
-     * Update the specified resource in storage.
+     * @param Ticket $ticket
+     * @return JsonResponse
      */
-    public function update(Request $request, string $id)
+    public function destroy(Ticket $ticket): JsonResponse
     {
-        //
-    }
+        $this->ticketService->delete($ticket);
 
-    /**
-     * Remove the specified resource from storage.
-     */
-    public function destroy(string $id)
-    {
-        //
+        return response()->json([
+            'message' => 'Ticket deleted',
+        ]);
     }
 }
