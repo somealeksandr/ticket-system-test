@@ -1,59 +1,216 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Smart Support Ticket System with AI Agent (Laravel)
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Backend API for a Helpdesk system where users submit support tickets and an AI Agent enriches each ticket with:
+- **category** (Technical | Billing | General)
+- **sentiment** (Positive | Neutral | Negative)
+- **suggested_reply** (draft response)
 
-## About Laravel
+AI enrichment runs asynchronously via a Laravel Job, so the API returns immediately after ticket creation.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+---
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Tech Stack
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- PHP 8.1+
+- Laravel 11
+- MySQL (can be changed to PostgreSQL/SQLite)
+- Laravel Queue (Database driver)
+- OpenAI API (with Fake AI fallback for local/testing)
+- PHPUnit Feature tests
 
-## Learning Laravel
+---
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+## Key Design Decisions
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+### Asynchronous AI processing
+Ticket creation is fast and reliable; AI calls can take seconds or fail temporarily.  
+Therefore, AI enrichment is processed in the background using a queued job.
 
-## Laravel Sponsors
+### Clean architecture / DI
+- Controllers are thin.
+- Ticket creation & deletion are handled by `TicketService`.
+- AI integration is behind `AiClientInterface` to easily swap providers (Fake/OpenAI).
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+### Observability
+Structured logs exist in:
+- `EnrichTicketJob` lifecycle (started/completed/retries/final failure)
+- `OpenAiClient` (latency + metadata, without logging ticket text)
 
-### Premium Partners
+---
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## Requirements
 
-## Contributing
+- PHP 8.2+
+- Composer
+- MySQL 8+ (or other DB)
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+---
 
-## Code of Conduct
+# Local Setup (No Docker)
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+## 1) Clone + install
+```bash
+git clone https://github.com/somealeksandr/ticket-system-test
+cd ticket-system-test
+composer install
+cp .env.example .env
+php artisan key:generate
+```
 
-## Security Vulnerabilities
+## 2) Configure MySQL
+Create a database:
+```bash
+CREATE DATABASE ticket-system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## 3) Configure AI (OpenAI or Fake)
+Option A: OpenAI (real)
+```env
+AI_DRIVER=openai
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-4o-mini
+```
+Option B: Fake AI (no key needed)
+```env
+AI_DRIVER=fake
+```
 
-## License
+## 4) Run migrations + queue table
+```bash
+php artisan migrate
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+## 5) Run the app
+Terminal 1:
+```bash
+php artisan serve
+```
+Terminal 2 (queue worker):
+```bash
+php artisan queue:work
+```
+
+## API is available at:
+
+http://127.0.0.1:8000/api
+
+## Running Tests
+
+Feature tests cover:
+
+ticket creation
+
+job dispatching
+
+AI enrichment persistence
+
+list tickets
+
+delete ticket
+
+```bash
+php artisan test
+```
+During tests, OpenAI is not called; Fake AI is used.
+
+# API Endpoints
+
+## Create Ticket
+POST /api/tickets
+
+Body:
+```json
+{
+  "title": "Refund issue",
+  "description": "I was charged twice and this is terrible. Please refund."
+}
+```
+Response:
+```json
+{
+  "message": "Ticket created",
+  "data": {
+    "id": 1,
+    "title": "Refund issue",
+    "description": "....",
+    "status": "Open",
+    "category": null,
+    "sentiment": null,
+    "suggested_reply": null,
+    "created_at": "..."
+  }
+}
+```
+AI enrichment will populate fields a few seconds later (queue worker must be running).
+
+## Show Ticket
+GET /api/tickets/{id}
+
+Response:
+```json
+{
+  "data": {
+    "id": 1,
+    "title": "Refund issue",
+    "description": "...",
+    "status": "Open",
+    "category": "Billing",
+    "sentiment": "Negative",
+    "suggested_reply": "Thanks for reaching out..."
+  }
+}
+```
+
+## List Tickets
+
+GET /api/tickets?per_page=15
+
+Response:
+```json
+{
+  "data": [ ... ],
+  "meta": {
+    "current_page": 1,
+    "last_page": 1,
+    "per_page": 15,
+    "total": 3
+  }
+}
+```
+
+## Delete Ticket
+
+DELETE /api/tickets/{id}
+
+Response:
+```json
+{
+  "message": "Ticket deleted"
+}
+```
+
+## Prompt Strategy (How JSON-only output is enforced)
+
+The system prompt instructs the model to act as a helpful customer support agent and return ONLY valid JSON with a strict schema:
+
+category: Technical | Billing | General
+
+sentiment: Positive | Neutral | Negative
+
+reply: short professional support reply
+
+Rules enforced in the prompt:
+
+output must be raw JSON (no markdown)
+
+no extra explanations
+
+must be parseable and follow the schema
+
+Additionally, server-side validation ensures:
+
+required keys exist
+
+values are normalized to allowed enums (fallbacks apply)
+
+malformed responses trigger retries (job backoff + retry limits)
